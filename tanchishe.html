@@ -14,6 +14,26 @@
       --food: #f87171;
       --text: #e2e8f0;
       --accent: #fbbf24;
+      --muted: #94a3b8;
+      --border: #3b3b5c;
+      --overlay-bg: rgba(10, 10, 20, 0.8);
+      --btn-primary-fg: #0b1f12;
+    }
+
+    /* 浅色主题 */
+    [data-theme="light"] {
+      --bg: #f1f5f9;
+      --panel: #ffffff;
+      --grid: #cbd5e1;
+      --snake: #16a34a;
+      --snake-head: #22c55e;
+      --food: #ef4444;
+      --text: #0f172a;
+      --accent: #d97706;
+      --muted: #64748b;
+      --border: #cbd5e1;
+      --overlay-bg: rgba(255, 255, 255, 0.85);
+      --btn-primary-fg: #ffffff;
     }
 
     * { box-sizing: border-box; }
@@ -60,7 +80,7 @@
     canvas {
       display: block;
       background: var(--panel);
-      border: 2px solid #333;
+      border: 2px solid var(--border);
       border-radius: 8px;
     }
 
@@ -72,7 +92,7 @@
       align-items: center;
       justify-content: center;
       gap: 8px;
-      background: rgba(10, 10, 20, 0.8);
+      background: var(--overlay-bg);
       border-radius: 8px;
     }
 
@@ -85,7 +105,7 @@
     .overlay-title.danger { color: var(--food); }
 
     .overlay-sub {
-      color: #94a3b8;
+      color: var(--muted);
       font-size: 0.95rem;
       margin-bottom: 6px;
     }
@@ -106,18 +126,18 @@
       font-size: 0.95rem;
       color: var(--text);
       background: var(--panel);
-      border: 1px solid #3b3b5c;
+      border: 1px solid var(--border);
       border-radius: 6px;
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s;
     }
 
-    .btn:hover { border-color: #666; }
+    .btn:hover { border-color: var(--muted); }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .btn-primary {
       background: var(--snake);
-      color: #0b1f12;
+      color: var(--btn-primary-fg);
       font-weight: 700;
       border-color: var(--snake);
     }
@@ -127,7 +147,7 @@
 
     .hint {
       margin: 12px 0 0;
-      color: #94a3b8;
+      color: var(--muted);
       font-size: 0.9rem;
     }
   </style>
@@ -152,6 +172,7 @@
     <div class="controls">
       <button class="btn" id="btn-pause">暂停</button>
       <button class="btn" id="btn-restart-bar">重新开始</button>
+      <button class="btn" id="btn-theme">主题：深色</button>
     </div>
 
     <p class="hint">方向键 / WASD 移动，Esc 暂停，空格开始</p>
@@ -183,6 +204,7 @@
     const btnRestart = document.getElementById('btn-restart');
     const btnRestartBar = document.getElementById('btn-restart-bar');
     const btnPause = document.getElementById('btn-pause');
+    const btnTheme = document.getElementById('btn-theme');
 
     // ===== 蛇的数据结构：坐标数组，[0] 为蛇头 =====
     let snake = [
@@ -194,7 +216,7 @@
     // ===== 方向控制 =====
     let direction = { x: 1, y: 0 };   // 当前移动方向（向右）
     const directionQueue = [];         // 输入缓冲，元素形如 { x, y, at }
-    const MAX_QUEUE = 2;               // 队列最大长度，超出丢弃最旧
+    const MAX_QUEUE = 3;               // 队列最大长度，超出丢弃最旧
     const QUEUE_TIMEOUT = 500;         // 预输入超时（毫秒），超时即丢弃
 
     const KEY_DIRS = {
@@ -442,6 +464,35 @@
       ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
     }
 
+    // ===== 主题（深色 / 浅色）=====
+    const THEMES = {
+      dark: {
+        grid: '#2a2a40',
+        snake: '#4ade80',
+        head: '#86efac',
+        food: '#f87171',
+      },
+      light: {
+        grid: '#cbd5e1',
+        snake: '#16a34a',
+        head: '#22c55e',
+        food: '#ef4444',
+      },
+    };
+
+    function applyTheme(theme) {
+      const isLight = theme === 'light';
+      const t = THEMES[isLight ? 'light' : 'dark'];
+      document.documentElement.dataset.theme = isLight ? 'light' : 'dark';
+      COLORS.grid = t.grid;
+      COLORS.snake = t.snake;
+      COLORS.head = t.head;
+      COLORS.food = t.food;
+      btnTheme.textContent = isLight ? '主题：浅色' : '主题：深色';
+      localStorage.setItem('snake-theme', isLight ? 'light' : 'dark');
+      draw();
+    }
+
     // ===== 按钮事件 =====
     btnPrimary.addEventListener('click', () => {
       if (state === 'paused') resume();
@@ -451,9 +502,14 @@
     btnRestart.addEventListener('click', () => { start(); btnRestart.blur(); });
     btnRestartBar.addEventListener('click', () => { start(); btnRestartBar.blur(); });
     btnPause.addEventListener('click', () => { togglePause(); btnPause.blur(); });
+    btnTheme.addEventListener('click', () => {
+      const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+      applyTheme(next);
+      btnTheme.blur();
+    });
 
-    // ===== 初始化：绘制静止画面 + 显示开始遮罩 =====
-    draw();
+    // ===== 初始化：应用主题 + 绘制静止画面 + 显示开始遮罩 =====
+    applyTheme(localStorage.getItem('snake-theme') || 'dark');
     renderState();
   </script>
 </body>
