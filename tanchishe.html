@@ -277,6 +277,7 @@
       <button class="btn" id="btn-pause">暂停</button>
       <button class="btn" id="btn-restart-bar">重新开始</button>
       <button class="btn" id="btn-theme">主题：深色</button>
+      <button class="btn" id="btn-ai">AI 演示：关</button>
     </div>
 
     <p class="hint">滑动屏幕或方向键 / WASD 移动 · Esc 暂停 · 空格开始</p>
@@ -328,6 +329,7 @@
     const btnRestartBar = document.getElementById('btn-restart-bar');
     const btnPause = document.getElementById('btn-pause');
     const btnTheme = document.getElementById('btn-theme');
+    const btnAi = document.getElementById('btn-ai');
     const winInputEl = document.getElementById('win-input');
     const btnWinDec = document.getElementById('btn-win-dec');
     const btnWinInc = document.getElementById('btn-win-inc');
@@ -388,7 +390,7 @@
       if (next) {
         e.preventDefault(); // 阻止页面滚动
         // 仅在运行中接收方向输入，暂停/结束/就绪期间丢弃
-        if (state === 'running') queueDirection(next);
+        if (state === 'running' && !aiMode) queueDirection(next);
       }
       // 空格：开始 / 重新开始（ready / over / win 时）
       if (e.key === ' ') {
@@ -425,7 +427,7 @@
         ? { x: Math.sign(dx), y: 0 }
         : { x: 0, y: Math.sign(dy) };
 
-      if (state === 'running') queueDirection(next);
+      if (state === 'running' && !aiMode) queueDirection(next);
     });
 
     // ===== 开始 / 重新开始 =====
@@ -478,8 +480,13 @@
         directionQueue.shift();
       }
 
-      // 取出下一个转向指令
-      if (directionQueue.length) {
+      if (aiMode) {
+        // AI 演示：每步由 AI 重新决策，忽略键盘/触控输入
+        const next = aiNextDir();
+        if (next) direction = next;
+        directionQueue.length = 0;
+      } else if (directionQueue.length) {
+        // 取出下一个转向指令
         const next = directionQueue.shift();
         direction = { x: next.x, y: next.y };
       }
@@ -579,6 +586,110 @@
     function saveWinLength() {
       try { localStorage.setItem('snake-win', String(winLength)); }
       catch { /* 存储不可用时静默失败 */ }
+    }
+
+    // ===== AI 演示（搜索 bot：BFS 寻路 + 存活启发式）=====
+    let aiMode = false;
+
+    // BFS 最短路径 from -> to；obstacles 为不可通过的坐标集合（键 "x,y"）
+    function bfs(from, to, obstacles) {
+      const targetKey = `${to.x},${to.y}`;
+      const start = { x: from.x, y: from.y };
+      if (`${start.x},${start.y}` === targetKey) return [start];
+      const queue = [[start]];
+      const visited = new Set([`${start.x},${start.y}`]);
+      while (queue.length) {
+        const path = queue.shift();
+        const cur = path[path.length - 1];
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cur.x + dx, ny = cur.y + dy;
+          if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+          const key = `${nx},${ny}`;
+          if (visited.has(key) || obstacles.has(key)) continue;
+          const np = path.concat([{ x: nx, y: ny }]);
+          if (key === targetKey) return np;
+          visited.add(key);
+          queue.push(np);
+        }
+      }
+      return null;
+    }
+
+    // 洪水填充：统计从 from 出发可达的空格数（obstacles 视为不可通过）
+    function floodFill(from, obstacles) {
+      const visited = new Set();
+      const stack = [[from.x, from.y]];
+      let count = 0;
+      while (stack.length) {
+        const [cx, cy] = stack.pop();
+        const key = `${cx},${cy}`;
+        if (visited.has(key) || obstacles.has(key)) continue;
+        visited.add(key);
+        count++;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+          stack.push([nx, ny]);
+        }
+      }
+      return count;
+    }
+
+    // 模拟沿 foodPath 走到底后，蛇头是否仍能连通到蛇尾（防止自围）
+    function safeToFollow(foodPath) {
+      const sim = snake.map((s) => ({ x: s.x, y: s.y }));
+      for (let i = 1; i < foodPath.length; i++) {
+        const n = foodPath[i];
+        sim.unshift({ x: n.x, y: n.y });
+        const ate = n.x === food.x && n.y === food.y;
+        if (!ate) sim.pop();
+      }
+      const head = sim[0];
+      const tail = sim[sim.length - 1];
+      const obstacles = new Set(sim.slice(0, -1).map((s) => `${s.x},${s.y}`));
+      return !!bfs(head, tail, obstacles);
+    }
+
+    function dirFromTo(a, b) {
+      return { x: Math.sign(b.x - a.x), y: Math.sign(b.y - a.y) };
+    }
+
+    // 兜底：无安全路径时，选「剩余可达空间最大」的一步
+    function bestOpenSpaceMove() {
+      const head = snake[0];
+      const body = new Set(snake.slice(0, -1).map((s) => `${s.x},${s.y}`)); // 尾部视为空位
+      let best = null, bestSpace = -1;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (dx + direction.x === 0 && dy + direction.y === 0) continue; // 禁止反向
+        const nx = head.x + dx, ny = head.y + dy;
+        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+        if (body.has(`${nx},${ny}`)) continue;
+        const space = floodFill({ x: nx, y: ny }, body);
+        if (space > bestSpace) { bestSpace = space; best = { x: dx, y: dy }; }
+      }
+      return best;
+    }
+
+    // 每步决策：返回下一步方向 {x,y}；无解返回 null
+    function aiNextDir() {
+      const head = snake[0];
+      const tail = snake[snake.length - 1];
+      const obstacles = new Set(snake.slice(0, -1).map((s) => `${s.x},${s.y}`)); // 尾部视为空位
+
+      // 1) 优先：安全地吃到食物
+      const foodPath = bfs(head, food, obstacles);
+      if (foodPath && foodPath.length > 1 && safeToFollow(foodPath)) {
+        return dirFromTo(head, foodPath[1]);
+      }
+
+      // 2) 次选：跟随蛇尾绕圈，等待机会
+      const tailPath = bfs(head, tail, obstacles);
+      if (tailPath && tailPath.length > 1) {
+        return dirFromTo(head, tailPath[1]);
+      }
+
+      // 3) 兜底：选剩余空间最大的一步
+      return bestOpenSpaceMove();
     }
 
     // ===== 根据状态刷新遮罩层与按钮 =====
@@ -715,6 +826,12 @@
       const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
       applyTheme(next);
       btnTheme.blur();
+    });
+    btnAi.addEventListener('click', () => {
+      aiMode = !aiMode;
+      btnAi.textContent = aiMode ? 'AI 演示：开' : 'AI 演示：关';
+      btnAi.blur();
+      if (aiMode && (state === 'ready' || state === 'over' || state === 'win')) start();
     });
     btnWinDec.addEventListener('click', () => { setWinLength(winLength - 5); btnWinDec.blur(); });
     btnWinInc.addEventListener('click', () => { setWinLength(winLength + 5); btnWinInc.blur(); });
