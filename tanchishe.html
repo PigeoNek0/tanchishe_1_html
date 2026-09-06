@@ -41,6 +41,7 @@
     body {
       margin: 0;
       min-height: 100vh;
+      min-height: 100svh;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -48,6 +49,10 @@
       background: var(--bg);
       color: var(--text);
       font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
     }
 
     h1 {
@@ -71,6 +76,9 @@
       display: flex;
       flex-direction: column;
       align-items: center;
+      width: 100%;
+      max-width: 424px;
+      padding: 12px;
     }
 
     .stage {
@@ -79,9 +87,14 @@
 
     canvas {
       display: block;
+      width: 400px;
+      max-width: 100%;
+      height: auto;
       background: var(--panel);
       border: 2px solid var(--border);
       border-radius: 8px;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
     }
 
     .overlay {
@@ -117,18 +130,23 @@
 
     .controls {
       display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
       gap: 10px;
       margin-top: 12px;
     }
 
     .btn {
       padding: 8px 18px;
+      min-height: 44px;
+      min-width: 44px;
       font-size: 0.95rem;
       color: var(--text);
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 6px;
       cursor: pointer;
+      touch-action: manipulation;
       transition: background 0.15s, border-color 0.15s;
     }
 
@@ -161,7 +179,7 @@
       <canvas id="game" width="400" height="400"></canvas>
       <div class="overlay" id="overlay">
         <div class="overlay-title" id="overlay-title">贪吃蛇</div>
-        <div class="overlay-sub" id="overlay-sub">方向键 / WASD 移动</div>
+        <div class="overlay-sub" id="overlay-sub">方向键 / WASD 移动，或滑动屏幕</div>
         <div class="overlay-buttons">
           <button class="btn btn-primary" id="btn-primary">开始游戏</button>
           <button class="btn" id="btn-restart">重新开始</button>
@@ -175,7 +193,7 @@
       <button class="btn" id="btn-theme">主题：深色</button>
     </div>
 
-    <p class="hint">方向键 / WASD 移动，Esc 暂停，空格开始</p>
+    <p class="hint">滑动屏幕或方向键 / WASD 移动 · Esc 暂停 · 空格开始</p>
   </div>
 
   <script>
@@ -274,6 +292,32 @@
         e.preventDefault();
         togglePause();
       }
+    });
+
+    // ===== 触控输入（滑动转向） =====
+    let touchStart = null;
+
+    canvas.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      touchStart = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (!touchStart) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStart.x;
+      const dy = t.clientY - touchStart.y;
+      touchStart = null;
+
+      // 低于阈值视为点击，不转向
+      if (Math.abs(dx) < 20 && Math.abs(dy) < 20) return;
+
+      // 取位移更大的轴向，换算成方向向量
+      const next = Math.abs(dx) > Math.abs(dy)
+        ? { x: Math.sign(dx), y: 0 }
+        : { x: 0, y: Math.sign(dy) };
+
+      if (state === 'running') queueDirection(next);
     });
 
     // ===== 开始 / 重新开始 =====
@@ -399,7 +443,7 @@
       if (state === 'ready') {
         overlay.classList.remove('hidden');
         overlayTitle.textContent = '贪吃蛇';
-        overlaySub.textContent = '方向键 / WASD 移动';
+        overlaySub.textContent = '方向键 / WASD 移动，或滑动屏幕';
         btnPrimary.textContent = '开始游戏';
         btnPrimary.classList.remove('hidden');
         btnRestart.classList.add('hidden');
@@ -480,6 +524,17 @@
       },
     };
 
+    // 安全读写 localStorage（隐私模式 / file:// 下可能不可用，避免抛异常导致脚本中断）
+    function loadTheme() {
+      try { return localStorage.getItem('snake-theme'); }
+      catch { return null; }
+    }
+
+    function saveTheme(theme) {
+      try { localStorage.setItem('snake-theme', theme); }
+      catch { /* 存储不可用时静默失败，仅本次会话生效 */ }
+    }
+
     function applyTheme(theme) {
       const isLight = theme === 'light';
       const t = THEMES[isLight ? 'light' : 'dark'];
@@ -489,7 +544,7 @@
       COLORS.head = t.head;
       COLORS.food = t.food;
       btnTheme.textContent = isLight ? '主题：浅色' : '主题：深色';
-      localStorage.setItem('snake-theme', isLight ? 'light' : 'dark');
+      saveTheme(isLight ? 'light' : 'dark');
       draw();
     }
 
@@ -509,7 +564,7 @@
     });
 
     // ===== 初始化：应用主题 + 绘制静止画面 + 显示开始遮罩 =====
-    applyTheme(localStorage.getItem('snake-theme') || 'dark');
+    applyTheme(loadTheme() || 'dark');
     renderState();
   </script>
 </body>
