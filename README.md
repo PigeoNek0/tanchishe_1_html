@@ -1,2 +1,3 @@
 # tanchishe_1_html
-使用ai开发的网页贪吃蛇游戏，基于html，css与JavaScript
+使用ai开发和管理仓库的网页贪吃蛇游戏，基于html，css与JavaScript
+本项目使用MIT开源协议，因为MIT协议具有极其宽松的开源许可范围。
