@@ -116,6 +116,7 @@
     }
 
     .overlay-title.danger { color: var(--food); }
+    .overlay-title.success { color: var(--snake); }
 
     .overlay-sub {
       color: var(--muted);
@@ -168,9 +169,94 @@
       color: var(--muted);
       font-size: 0.9rem;
     }
+
+    /* 右侧设置面板 */
+    .layout {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 24px;
+      padding: 12px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-width: 220px;
+      max-width: 260px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+
+    .panel-desc {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .panel-range {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .stepper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-step {
+      padding: 6px 12px;
+      font-size: 1.1rem;
+      min-width: 40px;
+    }
+
+    .stepper-input {
+      flex: 1;
+      min-width: 0;
+      padding: 6px 8px;
+      font-size: 1rem;
+      text-align: center;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      -moz-appearance: textfield;
+    }
+
+    .stepper-input::-webkit-outer-spin-button,
+    .stepper-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .preset {
+      flex: 1;
+      min-width: 40px;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
+  <div class="layout">
   <div class="game">
     <h1>贪吃蛇</h1>
     <div class="score">当前分数：<span id="score">0</span></div>
@@ -194,6 +280,25 @@
     </div>
 
     <p class="hint">滑动屏幕或方向键 / WASD 移动 · Esc 暂停 · 空格开始</p>
+  </div>
+
+  <aside class="panel" aria-label="胜利目标设置">
+    <h2 class="panel-title">胜利目标</h2>
+    <p class="panel-desc">蛇身长度达到该值即获胜</p>
+    <div class="stepper">
+      <button class="btn btn-step" id="btn-win-dec" aria-label="减少目标">-</button>
+      <input class="stepper-input" id="win-input" type="number" aria-label="胜利目标数值">
+      <button class="btn btn-step" id="btn-win-inc" aria-label="增加目标">+</button>
+    </div>
+    <div class="presets">
+      <button class="btn preset" data-win="20">20</button>
+      <button class="btn preset" data-win="50">50</button>
+      <button class="btn preset" data-win="100">100</button>
+      <button class="btn preset" data-win="200">200</button>
+      <button class="btn preset" data-win="400">400</button>
+    </div>
+    <p class="panel-range">范围 4 ~ 400 · 默认 400</p>
+  </aside>
   </div>
 
   <script>
@@ -223,6 +328,9 @@
     const btnRestartBar = document.getElementById('btn-restart-bar');
     const btnPause = document.getElementById('btn-pause');
     const btnTheme = document.getElementById('btn-theme');
+    const winInputEl = document.getElementById('win-input');
+    const btnWinDec = document.getElementById('btn-win-dec');
+    const btnWinInc = document.getElementById('btn-win-inc');
 
     // ===== 蛇的数据结构：坐标数组，[0] 为蛇头 =====
     let snake = [
@@ -282,10 +390,10 @@
         // 仅在运行中接收方向输入，暂停/结束/就绪期间丢弃
         if (state === 'running') queueDirection(next);
       }
-      // 空格：开始 / 重新开始（仅 ready 或 over 时）
+      // 空格：开始 / 重新开始（ready / over / win 时）
       if (e.key === ' ') {
         e.preventDefault();
-        if (state === 'ready' || state === 'over') start();
+        if (state === 'ready' || state === 'over' || state === 'win') start();
       }
       // Esc：暂停 / 继续
       if (e.key === 'Escape') {
@@ -398,10 +506,12 @@
       // 移动：新蛇头插入头部
       snake.unshift(newHead);
 
-      // 吃到食物：加分 + 生成新食物（蛇尾已保留，实现增长）
+      // 吃到食物：加分（蛇尾已保留，实现增长）
       if (ate) {
         score++;
         updateScore();
+        // 长度达到地图容纳上限 → 胜利
+        if (snake.length >= winLength) return win();
         spawnFood();
       }
 
@@ -436,9 +546,45 @@
       renderState();
     }
 
+    // ===== 胜利 =====
+    function win() {
+      state = 'win';
+      clearInterval(timer);
+      timer = null;
+      draw();
+      renderState();
+    }
+
+    // ===== 胜利目标（可配置） =====
+    const WIN_MIN = 4;               // 最小目标（蛇初始长度 3 + 1）
+    const WIN_MAX = COLS * ROWS;     // 地图容纳上限
+    const WIN_DEFAULT = COLS * ROWS; // 默认：填满地图
+    let winLength = WIN_DEFAULT;
+
+    function clampWin(n) {
+      return Math.min(WIN_MAX, Math.max(WIN_MIN, Math.round(n)));
+    }
+
+    function setWinLength(n) {
+      winLength = clampWin(n);
+      winInputEl.value = winLength;
+      saveWinLength();
+    }
+
+    function loadWinLength() {
+      try { return parseInt(localStorage.getItem('snake-win'), 10); }
+      catch { return NaN; }
+    }
+
+    function saveWinLength() {
+      try { localStorage.setItem('snake-win', String(winLength)); }
+      catch { /* 存储不可用时静默失败 */ }
+    }
+
     // ===== 根据状态刷新遮罩层与按钮 =====
     function renderState() {
       overlayTitle.classList.toggle('danger', state === 'over');
+      overlayTitle.classList.toggle('success', state === 'win');
 
       if (state === 'ready') {
         overlay.classList.remove('hidden');
@@ -466,6 +612,14 @@
         overlay.classList.remove('hidden');
         overlayTitle.textContent = '游戏结束';
         overlaySub.textContent = `得分：${score} 分`;
+        btnPrimary.classList.add('hidden');
+        btnRestart.classList.remove('hidden');
+        btnPause.textContent = '暂停';
+        btnPause.disabled = true;
+      } else if (state === 'win') {
+        overlay.classList.remove('hidden');
+        overlayTitle.textContent = '胜利！';
+        overlaySub.textContent = `蛇长达到 ${winLength}，得分：${score} 分`;
         btnPrimary.classList.add('hidden');
         btnRestart.classList.remove('hidden');
         btnPause.textContent = '暂停';
@@ -551,7 +705,7 @@
     // ===== 按钮事件 =====
     btnPrimary.addEventListener('click', () => {
       if (state === 'paused') resume();
-      else if (state === 'ready' || state === 'over') start();
+      else if (state === 'ready' || state === 'over' || state === 'win') start();
       btnPrimary.blur();
     });
     btnRestart.addEventListener('click', () => { start(); btnRestart.blur(); });
@@ -562,9 +716,27 @@
       applyTheme(next);
       btnTheme.blur();
     });
+    btnWinDec.addEventListener('click', () => { setWinLength(winLength - 5); btnWinDec.blur(); });
+    btnWinInc.addEventListener('click', () => { setWinLength(winLength + 5); btnWinInc.blur(); });
+    winInputEl.addEventListener('change', () => {
+      const n = parseInt(winInputEl.value, 10);
+      setWinLength(Number.isNaN(n) ? winLength : n);
+    });
+    document.querySelectorAll('.preset').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setWinLength(parseInt(btn.dataset.win, 10));
+        btn.blur();
+      });
+    });
 
-    // ===== 初始化：应用主题 + 绘制静止画面 + 显示开始遮罩 =====
+    // ===== 初始化：应用主题 + 恢复胜利目标 + 绘制静止画面 + 显示开始遮罩 =====
     applyTheme(loadTheme() || 'dark');
+    const savedWin = loadWinLength();
+    winLength = clampWin(Number.isFinite(savedWin) ? savedWin : WIN_DEFAULT);
+    winInputEl.min = WIN_MIN;
+    winInputEl.max = WIN_MAX;
+    winInputEl.step = 5;
+    winInputEl.value = winLength;
     renderState();
   </script>
 </body>
