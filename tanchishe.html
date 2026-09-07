@@ -72,6 +72,14 @@
       font-variant-numeric: tabular-nums;
     }
 
+    .validity {
+      margin: 0 0 12px;
+      font-size: 0.85rem;
+    }
+
+    .validity.valid { color: var(--snake); }
+    .validity.invalid { color: var(--food); }
+
     .game {
       display: flex;
       flex-direction: column;
@@ -164,6 +172,97 @@
 
     .hidden { display: none; }
 
+    /* 历史最高分列表 */
+    .history-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .history-item {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .history-rank {
+      color: var(--muted);
+      min-width: 1.8em;
+      text-align: right;
+    }
+
+    .history-score {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .history-win {
+      color: var(--snake);
+      font-size: 0.75rem;
+    }
+
+    .history-time {
+      margin-left: auto;
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    /* 历史得分弹窗 */
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: var(--overlay-bg);
+    }
+
+    .modal.hidden { display: none; }
+
+    .modal-box {
+      width: 100%;
+      max-width: 360px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-head h3 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+
+    .modal-close {
+      padding: 2px 10px;
+      min-height: 0;
+      font-size: 1.1rem;
+      line-height: 1.4;
+    }
+
+    .history-scroll {
+      overflow-y: auto;
+      max-height: 50vh;
+      padding-right: 4px;
+    }
+
     .hint {
       margin: 12px 0 0;
       color: var(--muted);
@@ -253,13 +352,27 @@
       padding: 6px 8px;
       font-size: 0.85rem;
     }
+
+    /* 移动端 / 窄屏优化：游戏主体置顶，面板下移并占满可用宽度 */
+    @media (max-width: 900px) {
+      .layout { gap: 16px; padding: 8px; }
+      .game { order: -1; }
+      .panel { width: 100%; min-width: 0; max-width: 340px; }
+    }
   </style>
 </head>
 <body>
   <div class="layout">
+  <aside class="panel" aria-label="历史最高分">
+    <h2 class="panel-title">历史最高分</h2>
+    <ol id="history-top" class="history-list"></ol>
+    <p class="panel-desc hidden" id="history-empty">暂无记录，赢一局试试吧</p>
+    <button class="btn" id="btn-history-all">查看全部</button>
+  </aside>
   <div class="game">
     <h1>贪吃蛇</h1>
     <div class="score">当前分数：<span id="score">0</span></div>
+    <p class="validity valid" id="score-validity">本局成绩有效</p>
 
     <div class="stage">
       <canvas id="game" width="400" height="400"></canvas>
@@ -302,6 +415,17 @@
   </aside>
   </div>
 
+  <div class="modal hidden" id="history-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h3>历史得分</h3>
+        <button class="btn modal-close" id="btn-history-close" aria-label="关闭">×</button>
+      </div>
+      <ol id="history-full" class="history-list history-scroll"></ol>
+      <button class="btn" id="btn-history-clear">清空记录</button>
+    </div>
+  </div>
+
   <script>
     // ===== 网格与画布 =====
     const canvas = document.getElementById('game');
@@ -321,6 +445,7 @@
 
     // ===== DOM 元素 =====
     const scoreEl = document.getElementById('score');
+    const validityEl = document.getElementById('score-validity');
     const overlay = document.getElementById('overlay');
     const overlayTitle = document.getElementById('overlay-title');
     const overlaySub = document.getElementById('overlay-sub');
@@ -333,6 +458,13 @@
     const winInputEl = document.getElementById('win-input');
     const btnWinDec = document.getElementById('btn-win-dec');
     const btnWinInc = document.getElementById('btn-win-inc');
+    const historyTopEl = document.getElementById('history-top');
+    const historyFullEl = document.getElementById('history-full');
+    const historyEmptyEl = document.getElementById('history-empty');
+    const btnHistoryAll = document.getElementById('btn-history-all');
+    const btnHistoryClose = document.getElementById('btn-history-close');
+    const btnHistoryClear = document.getElementById('btn-history-clear');
+    const historyModal = document.getElementById('history-modal');
 
     // ===== 蛇的数据结构：坐标数组，[0] 为蛇头 =====
     let snake = [
@@ -366,8 +498,9 @@
         : direction;
       if (last.x + next.x === 0 && last.y + next.y === 0) return;
 
-      // 长度限制：超出则丢弃最旧的指令
-      if (directionQueue.length >= MAX_QUEUE) directionQueue.shift();
+      // 长度限制：队列已满则丢弃本次输入，而非丢弃队头。
+      // 若丢弃队头，会破坏「队头与当前方向不反向」的不变量，导致原地掉头撞入身体。
+      if (directionQueue.length >= MAX_QUEUE) return;
 
       directionQueue.push({ x: next.x, y: next.y, at: Date.now() });
     }
@@ -382,6 +515,7 @@
     let state = 'ready';
     let timer = null;
     const SPEED = 150; // 每步间隔（毫秒），后续可随分数递减
+    let gameUsedAi = false; // 本局是否曾处于 AI 模式（沾过即作废，用于成绩判定）
 
     // ===== 输入处理 =====
     document.addEventListener('keydown', (e) => {
@@ -400,7 +534,11 @@
       // Esc：暂停 / 继续
       if (e.key === 'Escape') {
         e.preventDefault();
-        togglePause();
+        if (!historyModal.classList.contains('hidden')) {
+          historyModal.classList.add('hidden');
+        } else {
+          togglePause();
+        }
       }
     });
 
@@ -440,6 +578,8 @@
       ];
       direction = { x: 1, y: 0 };
       directionQueue.length = 0;
+      gameUsedAi = false;
+      renderValidity();
       score = 0;
       updateScore();
       state = 'running';
@@ -482,13 +622,26 @@
 
       if (aiMode) {
         // AI 演示：每步由 AI 重新决策，忽略键盘/触控输入
+        gameUsedAi = true; // 本局曾使用 AI，成绩作废
+        renderValidity();
         const next = aiNextDir();
         if (next) direction = next;
         directionQueue.length = 0;
-      } else if (directionQueue.length) {
-        // 取出下一个转向指令
-        const next = directionQueue.shift();
-        direction = { x: next.x, y: next.y };
+      } else {
+        // 消费前跳过与当前方向相反的指令（防御：超时清理可能残留反向队头）
+        while (directionQueue.length) {
+          const head = directionQueue[0];
+          if (head.x + direction.x === 0 && head.y + direction.y === 0) {
+            directionQueue.shift();
+          } else {
+            break;
+          }
+        }
+        if (directionQueue.length) {
+          // 取出下一个转向指令
+          const next = directionQueue.shift();
+          direction = { x: next.x, y: next.y };
+        }
       }
 
       // 计算新蛇头
@@ -544,12 +697,21 @@
       scoreEl.textContent = score;
     }
 
+    // 本局成绩有效性提示（依据 gameUsedAi）
+    function renderValidity() {
+      const valid = !gameUsedAi;
+      validityEl.textContent = valid ? '本局成绩有效' : '本局成绩无效（已使用 AI 演示）';
+      validityEl.classList.toggle('valid', valid);
+      validityEl.classList.toggle('invalid', !valid);
+    }
+
     // ===== 游戏结束 =====
     function gameOver() {
       state = 'over';
       clearInterval(timer);
       timer = null;
       draw();
+      recordScore(score, 'over');
       renderState();
     }
 
@@ -559,6 +721,7 @@
       clearInterval(timer);
       timer = null;
       draw();
+      recordScore(score, 'win');
       renderState();
     }
 
@@ -586,6 +749,79 @@
     function saveWinLength() {
       try { localStorage.setItem('snake-win', String(winLength)); }
       catch { /* 存储不可用时静默失败 */ }
+    }
+
+    // ===== 历史得分记录 =====
+    const HISTORY_MAX = 100;       // 存储上限（条）
+    let history = loadHistory();
+
+    function loadHistory() {
+      try {
+        const raw = localStorage.getItem('snake-history');
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr)
+          ? arr.filter((r) => r && typeof r.score === 'number' && typeof r.ts === 'number')
+          : [];
+      } catch { return []; }
+    }
+
+    function saveHistory() {
+      try { localStorage.setItem('snake-history', JSON.stringify(history)); }
+      catch { /* 存储不可用时静默失败 */ }
+    }
+
+    function recordScore(finalScore, result) {
+      if (gameUsedAi) return;      // 本局曾使用 AI，成绩作废
+      if (finalScore <= 0) return; // 0 分（及异常值）不记录
+      history.push({ score: finalScore, ts: Date.now(), result });
+      history.sort((a, b) => b.score - a.score || b.ts - a.ts); // 分数降序，同分新在前
+      if (history.length > HISTORY_MAX) history.length = HISTORY_MAX;
+      saveHistory();
+      renderHistory();
+    }
+
+    function formatTime(ts) {
+      const d = new Date(ts);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function historyItemEl(rank, r) {
+      const li = document.createElement('li');
+      li.className = 'history-item';
+
+      const rankEl = document.createElement('span');
+      rankEl.className = 'history-rank';
+      rankEl.textContent = `#${rank}`;
+
+      const scoreEl = document.createElement('span');
+      scoreEl.className = 'history-score';
+      scoreEl.textContent = `${r.score} 分`;
+
+      const timeEl = document.createElement('span');
+      timeEl.className = 'history-time';
+      timeEl.textContent = formatTime(r.ts);
+
+      li.append(rankEl, scoreEl, timeEl);
+      if (r.result === 'win') {
+        const winEl = document.createElement('span');
+        winEl.className = 'history-win';
+        winEl.textContent = '胜';
+        li.appendChild(winEl);
+      }
+      return li;
+    }
+
+    function renderHistory() {
+      const top = history.slice(0, 10);
+      historyTopEl.innerHTML = '';
+      top.forEach((r, i) => historyTopEl.appendChild(historyItemEl(i + 1, r)));
+
+      historyEmptyEl.classList.toggle('hidden', history.length > 0);
+      btnHistoryAll.disabled = history.length === 0;
+
+      historyFullEl.innerHTML = '';
+      history.forEach((r, i) => historyFullEl.appendChild(historyItemEl(i + 1, r)));
     }
 
     // ===== AI 演示（搜索 bot：BFS 寻路 + 存活启发式）=====
@@ -835,6 +1071,23 @@
     });
     btnWinDec.addEventListener('click', () => { setWinLength(winLength - 5); btnWinDec.blur(); });
     btnWinInc.addEventListener('click', () => { setWinLength(winLength + 5); btnWinInc.blur(); });
+    btnHistoryAll.addEventListener('click', () => {
+      historyModal.classList.remove('hidden');
+      btnHistoryAll.blur();
+    });
+    btnHistoryClose.addEventListener('click', () => historyModal.classList.add('hidden'));
+    historyModal.addEventListener('click', (e) => {
+      if (e.target === historyModal) historyModal.classList.add('hidden');
+    });
+    btnHistoryClear.addEventListener('click', () => {
+      if (history.length === 0) { btnHistoryClear.blur(); return; }
+      if (confirm('确定清空全部历史得分记录？')) {
+        history = [];
+        saveHistory();
+        renderHistory();
+      }
+      btnHistoryClear.blur();
+    });
     winInputEl.addEventListener('change', () => {
       const n = parseInt(winInputEl.value, 10);
       setWinLength(Number.isNaN(n) ? winLength : n);
@@ -855,6 +1108,8 @@
     winInputEl.step = 5;
     winInputEl.value = winLength;
     renderState();
+    renderHistory();
+    renderValidity();
   </script>
 </body>
 </html>
