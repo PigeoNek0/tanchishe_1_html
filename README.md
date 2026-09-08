@@ -1,6 +1,8 @@
 # tanchishe_1_html
 使用ai开发和管理仓库的网页贪吃蛇游戏，基于html，css与JavaScript。本项目使用MIT开源协议，因为MIT协议具有极其宽松的开源许可范围。
 
+分支用于暂存项目成员新的推送，可以暂存不同版本的仓库并方便地对比代码的差异，防止直接推送至main导致的进度丢失或其他奇奇怪怪的问题。而合并则是用于将已审查的代码和文件分支合并到主目录下。
+
 cd指choose directory，用于切换工作目录；ls指list，用于列出目录下的所有子文件和子目录；mkdir用于在当前目录下创建新的子文件夹
 
 常用git命令有git init、git push、git pull、git clone、git add等    
